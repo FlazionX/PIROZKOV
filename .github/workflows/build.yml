@@ -34,7 +34,7 @@ jobs:
       - name: Prepare assets folder
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/assets/photos | Out-Null
+          New-Item -ItemType Directory -Force dist/PIROZKOV/assets/photos | Out-Null
           Copy-Item assets/README.txt dist/PIROZKOV/assets/README.txt -ErrorAction SilentlyContinue
           if (Test-Path assets/samo_soboy.mp3) { Copy-Item assets/samo_soboy.mp3 dist/PIROZKOV/assets/ }
           if (Test-Path assets/captions.srt) { Copy-Item assets/captions.srt dist/PIROZKOV/assets/ }
