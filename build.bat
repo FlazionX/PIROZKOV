@@ -1,10 +1,14 @@
 @echo off
 cd /d %~dp0
+py -m pip install --upgrade pip
 py -m pip install -r requirements.txt pyinstaller
-py -m PyInstaller --noconfirm --clean --onefile --windowed --name PIROZKOV main.py
-if not exist dist\assets mkdir dist\assets
-if exist assets xcopy assets dist\assets /E /I /Y >nul
+py -m PyInstaller --noconfirm --clean --onefile --windowed --collect-all PySide6 --name PIROZKOV main.py
+if not exist dist\assets\photos mkdir dist\assets\photos
+if exist assets\README.txt copy /Y assets\README.txt dist\assets\README.txt >nul
+if exist assets\samo_soboy.mp3 copy /Y assets\samo_soboy.mp3 dist\assets\samo_soboy.mp3 >nul
+if exist assets\captions.srt copy /Y assets\captions.srt dist\assets\captions.srt >nul
+if exist assets\photos xcopy assets\photos dist\assets\photos /E /I /Y >nul
 echo.
 echo EXE: dist\PIROZKOV.exe
-echo Media folder: dist\assets
+echo Put samo_soboy.mp3 into dist\assets before running.
 pause
