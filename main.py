@@ -227,8 +227,8 @@ class GlobalExitKeys(QAbstractNativeEventFilter):
 
     def register(self):
         if sys.platform == "win32":
-            for hotkey_id, key in ((1, 0x1B), (2, 0x79)):
-                if ctypes.windll.user32.RegisterHotKey(None, hotkey_id, 0x4000, key):
+            for hotkey_id, modifiers, key in ((2, 0x0002 | 0x0004 | 0x4000, 0x79),):
+                if ctypes.windll.user32.RegisterHotKey(None, hotkey_id, modifiers, key):
                     self.ids.append(hotkey_id)
 
     def nativeEventFilter(self, event_type, message):
