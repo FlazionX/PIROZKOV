@@ -69,22 +69,9 @@ class PhotoLoader(QThread):
     loaded = Signal(list)
 
     def run(self):
+        # No network requests here: startup and the music sequence must not
+        # wait for remote image servers. Only load files already in assets/photos.
         PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-        local = [p for p in PHOTO_DIR.iterdir() if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
-        if len(local) < 3:
-            import urllib.request
-            for i, url in enumerate(PHOTO_URLS, 1):
-                target = PHOTO_DIR / f"starter_{i}.jpg"
-                if target.exists() and target.stat().st_size:
-                    continue
-                try:
-                    request = urllib.request.Request(url, headers={"User-Agent": "DANCE-EXE/1.0"})
-                    with urllib.request.urlopen(request, timeout=5) as response:
-                        data = response.read(8 * 1024 * 1024 + 1)
-                    if 0 < len(data) <= 8 * 1024 * 1024:
-                        target.write_bytes(data)
-                except Exception:
-                    pass
         paths = [
             str(p) for p in sorted(PHOTO_DIR.iterdir())
             if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS and p.stat().st_size > 0
