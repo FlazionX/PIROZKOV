@@ -19,7 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFrame, QMessageBox, QFileDialog, QGraphicsOpacityEffect
+    QFrame, QMessageBox, QFileDialog, QCheckBox, QGraphicsOpacityEffect
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -165,12 +165,12 @@ class PhotoLoader(QThread):
                 self.loaded.emit((images, gifs, True))
 
 class DanceDialog(QWidget):
-    accepted = Signal()
+    accepted = Signal(bool)
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DANCE.EXE")
-        self.setFixedSize(320, 145)
+        self.setFixedSize(440, 235)
         self.setWindowFlags(
             Qt.Dialog
             | Qt.WindowTitleHint
@@ -180,12 +180,38 @@ class DanceDialog(QWidget):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 10)
-        layout.setSpacing(13)
+        layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(9)
 
         question = QLabel("Хочешь Танцевать?")
         question.setAlignment(Qt.AlignCenter)
+        question_font = question.font()
+        question_font.setBold(True)
+        question_font.setPointSize(11)
+        question.setFont(question_font)
         layout.addWidget(question)
+
+        disclosure = QLabel(
+            "DANCE.EXE включает музыку, фотографии, GIF и цветные эффекты "
+            "поверх рабочего стола. Эффект можно остановить сочетанием "
+            "Ctrl + Shift + F10."
+        )
+        disclosure.setWordWrap(True)
+        layout.addWidget(disclosure)
+
+        self.move_icons = QCheckBox(
+            "Разрешить перемещение настоящих значков рабочего стола"
+        )
+        self.move_icons.setChecked(False)
+        layout.addWidget(self.move_icons)
+
+        note = QLabel(
+            "Значки перемещаются только при включённой галочке. "
+            "При обычном выходе программа пытается вернуть их на исходные места."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #555555;")
+        layout.addWidget(note)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(12)
@@ -193,20 +219,15 @@ class DanceDialog(QWidget):
         self.no = QPushButton("Нет")
         self.yes.setDefault(True)
         self.yes.clicked.connect(self.start_dance)
-        self.no.clicked.connect(self.evade_no)
+        self.no.clicked.connect(self.close)
+        buttons.addStretch(1)
         buttons.addWidget(self.yes)
         buttons.addWidget(self.no)
         layout.addLayout(buttons)
 
     def start_dance(self):
-        self.accepted.emit()
+        self.accepted.emit(self.move_icons.isChecked())
         self.close()
-
-    def evade_no(self):
-        # Keep the classic Windows button, but make it dodge clicks.
-        max_x = max(8, self.width() - self.no.width() - 8)
-        max_y = max(8, self.height() - self.no.height() - 8)
-        self.no.move(random.randint(8, max_x), random.randint(52, max_y))
 
 
 class DesktopIconDance:
@@ -487,9 +508,10 @@ class HeroSplash(QWidget):
         p.end()
 
 class Prank(QWidget):
-    def __init__(self, music_path):
+    def __init__(self, music_path, move_desktop_icons=False):
         super().__init__()
         self.music_path = Path(music_path)
+        self.move_desktop_icons = bool(move_desktop_icons)
         self.setWindowTitle("DANCE.EXE")
         flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus
         if hasattr(Qt, "WindowTransparentForInput"):
@@ -581,7 +603,8 @@ class Prank(QWidget):
             return
         self.music_started = True
         self.player.play()
-        self.icon_dance.start()
+        if self.move_desktop_icons:
+            self.icon_dance.start()
         self.photo_timer.start(PHOTO_INTERVAL_MS)
 
     def set_photos(self, payload):
@@ -685,7 +708,7 @@ class Prank(QWidget):
         active = set()
         for index, (start, end, words) in enumerate(self.captions):
             if start <= position < end:
-                if not self.icon_dance.started:
+                if self.move_desktop_icons and not self.icon_dance.started:
                     self.icon_dance.start()
                 active.add(index)
                 if index not in self.active_caption_indexes:
@@ -854,7 +877,7 @@ if __name__ == "__main__":
         QApplication.primaryScreen().geometry().center().y() - dialog.height() // 2,
     )
 
-    def launch_dance():
+    def launch_dance(move_icons):
         music_file = find_music_file()
         if music_file is None:
             selected, _ = QFileDialog.getOpenFileName(
@@ -868,7 +891,7 @@ if __name__ == "__main__":
             music_file = Path(selected)
 
         global prank_window, exit_hotkeys
-        prank_window = Prank(music_file)
+        prank_window = Prank(music_file, move_desktop_icons=move_icons)
         exit_hotkeys = GlobalExitKeys(prank_window.finish)
         app.installNativeEventFilter(exit_hotkeys)
         exit_hotkeys.register()
