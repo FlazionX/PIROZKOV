@@ -133,7 +133,12 @@ extern "C" __declspec(dllexport) int __cdecl dance_icons_init()
         LPITEMIDLIST pidl = nullptr;
         hr = g_view->Item(i, &pidl);
         if (SUCCEEDED(hr) && pidl) {
-            g_items.push_back(pidl);
+            POINT initialPosition = {};
+            if (SUCCEEDED(g_view->GetItemPosition(pidl, &initialPosition))) {
+                g_items.push_back(pidl);
+            } else {
+                CoTaskMemFree(pidl);
+            }
         }
     }
 
