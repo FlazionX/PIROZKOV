@@ -227,7 +227,7 @@ class Prank(QWidget):
         if len(self.tiles) > MAX_PHOTOS_ON_SCREEN:
             old = self.tiles.pop(0)
             old.deleteLater()
-        for popup in self.caption_popups:
+        for _, popup in self.caption_popups:
             popup.raise_()
 
     def update_captions(self):
