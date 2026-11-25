@@ -169,6 +169,12 @@ class DesktopIconDance:
 
     def _find_listview(self):
         user32 = ctypes.windll.user32
+        user32.FindWindowExW.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.HWND, ctypes.wintypes.LPCWSTR, ctypes.wintypes.LPCWSTR]
+        user32.FindWindowExW.restype = ctypes.wintypes.HWND
+        user32.FindWindowW.argtypes = [ctypes.wintypes.LPCWSTR, ctypes.wintypes.LPCWSTR]
+        user32.FindWindowW.restype = ctypes.wintypes.HWND
+        user32.EnumWindows.argtypes = [ctypes.c_void_p, ctypes.wintypes.LPARAM]
+        user32.EnumWindows.restype = ctypes.wintypes.BOOL
         found = []
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -430,6 +436,10 @@ class Prank(QWidget):
             (ROOT / "PIROZKOV-error.txt").write_text(str(message), encoding="utf-8")
         except Exception:
             pass
+
+    def start_music(self):
+        if self.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
+            self.player.play()
 
     def set_photos(self, paths):
         self.photos = []
