@@ -98,55 +98,43 @@ class DanceDialog(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DANCE.EXE")
-        self.setFixedSize(430, 235)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
-        self.setStyleSheet("""
-            QWidget { background:#171329; color:white; font-family:'Segoe UI'; }
-            QLabel#question { font-size:25px; font-weight:900; }
-            QLabel#sub { color:#b9b4d0; font-size:12px; }
-            QPushButton { border:0; border-radius:10px; padding:12px 30px; font-size:16px; font-weight:800; }
-            QPushButton#yes { background:#ff3d9a; color:white; }
-            QPushButton#no { background:#38334d; color:white; }
-        """)
+        self.setFixedSize(340, 155)
+        self.setWindowFlags(
+            Qt.Dialog
+            | Qt.WindowTitleHint
+            | Qt.WindowSystemMenuHint
+            | Qt.WindowCloseButtonHint
+            | Qt.WindowStaysOnTopHint
+        )
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 22)
-        layout.setSpacing(14)
-        title = QLabel("DANCE.EXE")
-        title.setStyleSheet("color:#ff69b4;font-size:13px;font-weight:900;letter-spacing:3px;")
-        title.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(18)
+
         question = QLabel("Хочешь Танцевать?")
-        question.setObjectName("question")
         question.setAlignment(Qt.AlignCenter)
-        sub = QLabel("У тебя есть только один правильный ответ")
-        sub.setObjectName("sub")
-        sub.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
         layout.addWidget(question)
-        layout.addWidget(sub)
+
         buttons = QHBoxLayout()
-        buttons.setSpacing(14)
-        self.yes = QPushButton("ДА")
-        self.yes.setObjectName("yes")
-        self.no = QPushButton("НЕТ")
-        self.no.setObjectName("no")
+        buttons.setSpacing(12)
+        self.yes = QPushButton("Да")
+        self.no = QPushButton("Нет")
+        self.yes.setDefault(True)
         self.yes.clicked.connect(self.start_dance)
         self.no.clicked.connect(self.evade_no)
         buttons.addWidget(self.yes)
         buttons.addWidget(self.no)
         layout.addLayout(buttons)
-        buttons.removeWidget(self.no)
-        self.no.setParent(self)
-        self.no.setGeometry(292, 177, 112, 42)
-        self.no.raise_()
 
     def start_dance(self):
         self.accepted.emit()
         self.close()
 
     def evade_no(self):
-        max_x = max(12, self.width() - self.no.width() - 12)
-        max_y = max(12, self.height() - self.no.height() - 12)
-        self.no.move(random.randint(12, max_x), random.randint(12, max_y))
+        # Keep the classic Windows button, but make it dodge clicks.
+        max_x = max(8, self.width() - self.no.width() - 8)
+        max_y = max(8, self.height() - self.no.height() - 8)
+        self.no.move(random.randint(8, max_x), random.randint(52, max_y))
 
 
 class DesktopIconDance:
