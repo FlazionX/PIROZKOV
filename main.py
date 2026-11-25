@@ -176,6 +176,8 @@ class DesktopIconDance:
         user32.FindWindowW.restype = ctypes.wintypes.HWND
         user32.EnumWindows.argtypes = [ctypes.c_void_p, ctypes.wintypes.LPARAM]
         user32.EnumWindows.restype = ctypes.wintypes.BOOL
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.wintypes.HWND, ctypes.POINTER(ctypes.wintypes.DWORD)]
+        user32.GetWindowThreadProcessId.restype = ctypes.wintypes.DWORD
         found = []
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -237,7 +239,7 @@ class DesktopIconDance:
             count = ctypes.windll.user32.SendMessageW(self.hwnd, self.LVM_GETITEMCOUNT, 0, 0)
             for index in range(min(int(count), 1000)):
                 ok = ctypes.windll.user32.SendMessageW(
-                    self.hwnd, self.LVM_GETITEMPOSITION, index, self.remote_point
+                    self.hwnd, self.LVM_GETITEMPOSITION, index, ctypes.cast(self.remote_point, ctypes.c_void_p).value
                 )
                 if not ok:
                     continue
@@ -307,7 +309,7 @@ class PhotoTile(QWidget):
         sy = max(0, (scaled.height() - self.height()) // 2)
         p.translate(self.width() / 2, self.height() / 2)
         p.rotate(self.angle)
-        p.drawPixmap(-self.width() / 2, -self.height() / 2, scaled.copy(sx, sy, self.width(), self.height()))
+        p.drawPixmap(-self.width() // 2, -self.height() // 2, scaled.copy(sx, sy, self.width(), self.height()))
 
 
 class CaptionWindow(QFrame):
