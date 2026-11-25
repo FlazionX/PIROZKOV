@@ -793,7 +793,6 @@ class Prank(QWidget):
         )
         if not getattr(self, "_playback_error_shown", False):
             self._playback_error_shown = True
-            self.finish()
             QMessageBox.warning(
                 None,
                 "DANCE.EXE",
@@ -801,6 +800,7 @@ class Prank(QWidget):
                 "Попробуй обычный MP3-файл.\n\n"
                 + details
             )
+            self.finish()
 
     def finish(self):
         self.animation_timer.stop()
