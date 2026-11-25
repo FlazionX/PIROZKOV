@@ -45,10 +45,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/PIROZKOV/assets/photos | Out-Null
+          New-Item -ItemType Directory -Force dist/PIROZKOV/assets/gifs | Out-Null
           Copy-Item assets/README.txt dist/PIROZKOV/assets/README.txt -ErrorAction SilentlyContinue
           if (Test-Path assets/samo_soboy.mp3) { Copy-Item assets/samo_soboy.mp3 dist/PIROZKOV/assets/ }
           if (Test-Path assets/captions.srt) { Copy-Item assets/captions.srt dist/PIROZKOV/assets/ }
           if (Test-Path assets/photos) { Copy-Item assets/photos/* dist/PIROZKOV/assets/photos/ -Recurse -Force }
+          if (Test-Path assets/gifs) { Copy-Item assets/gifs/* dist/PIROZKOV/assets/gifs/ -Recurse -Force }
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
