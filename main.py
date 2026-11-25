@@ -2,13 +2,14 @@ import sys
 import random
 import re
 import math
-import threading
+import ctypes
+import ctypes.wintypes
 import urllib.request
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal, QAbstractNativeEventFilter
 from PySide6.QtGui import QPixmap, QPainter, QColor
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QFrame, QMessageBox
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QFrame, QMessageBox
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -105,7 +106,14 @@ class Prank(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PIROZKOV.exe")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus
+        if hasattr(Qt, 'WindowTransparentForInput'):
+            flags |= Qt.WindowTransparentForInput
+        self.setWindowFlags(flags)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setGeometry(QApplication.primaryScreen().availableGeometry())
         self.phase = 0
         self.photos = []
         self.cards = []
@@ -121,23 +129,6 @@ class Prank(QWidget):
         self.player.errorOccurred.connect(self.on_media_error)
         self.player.setSource(QUrl.fromLocalFile(str(MUSIC)))
 
-        self.icons = []
-        names = ["Этот компьютер", "Корзина", "Папка", "PIROZKOV", "Музыка", "Фото", "Игры", "Документы"]
-        for i, name in enumerate(names):
-            icon = QLabel("🖥️\n" + name, self)
-            icon.setAlignment(Qt.AlignCenter)
-            icon.setStyleSheet("color:white;background:rgba(15,15,30,145);border:1px solid white;border-radius:9px;padding:7px;font-size:13px;")
-            icon.setFixedSize(104, 72)
-            self.icons.append(icon)
-
-        self.skip = QPushButton("ПРОПУСТИТЬ", self)
-        self.skip.setStyleSheet(
-            "QPushButton{background:#ffdf3e;color:#16121f;border:0;border-radius:12px;"
-            "padding:12px 22px;font-size:16px;font-weight:900;}"
-            "QPushButton:hover{background:white;}"
-        )
-        self.skip.clicked.connect(self.finish)
-        self.skip.adjustSize()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
@@ -150,14 +141,8 @@ class Prank(QWidget):
         self.photo_loader.finished_paths.connect(self.set_photos)
         self.photo_loader.start()
 
-        self.showFullScreen()
-        self.position_icons()
-        self.skip.move(self.width() - self.skip.width() - 28, 24)
+        self.show()
         QTimer.singleShot(400, self.player.play)
-
-    def position_icons(self):
-        for i, icon in enumerate(self.icons):
-            icon.move(35 + (i % 4) * 125, 55 + (i // 4) * 105)
 
     def set_photos(self, paths):
         self.photos.clear()
@@ -169,15 +154,6 @@ class Prank(QWidget):
     def animate(self):
         self.phase += 1
         self.update()
-        for i, icon in enumerate(self.icons):
-            x = 35 + (i % 4) * 125 + int(18 * math.sin(self.phase / 7 + i))
-            y = 55 + (i // 4) * 105 + int(20 * math.sin(self.phase / 5 + i * 1.7))
-            icon.move(x, y)
-            hue = (self.phase * 3 + i * 35) % 360
-            icon.setStyleSheet(
-                f"color:white;background:rgba(15,15,30,145);border:2px solid hsla({hue},100%,75%,0.95);"
-                "border-radius:9px;padding:7px;font-size:13px;"
-            )
         if self.phase % 65 == 0:
             self.spawn_photo()
 
@@ -191,7 +167,6 @@ class Prank(QWidget):
         self.cards.append(card)
         if len(self.cards) > 6:
             self.cards.pop(0).deleteLater()
-        self.skip.raise_()
         for popup in self.caption_popups:
             popup.raise_()
 
@@ -220,18 +195,20 @@ class Prank(QWidget):
 
     def on_media_error(self, error, message):
         if error != QMediaPlayer.Error.NoError:
-            QMessageBox.warning(self, "PIROZKOV.exe", "Не удалось воспроизвести музыку. Проверь файл assets/samo_soboy.mp3.")
+            try:
+                (ROOT / 'PIROZKOV-error.txt').write_text(str(message), encoding='utf-8')
+            except Exception:
+                pass
             self.finish()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor.fromHsv((self.phase * 2) % 360, 220, 230))
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 55))
-
-    def resizeEvent(self, event):
-        if hasattr(self, "skip"):
-            self.skip.move(self.width() - self.skip.width() - 28, 24)
-        super().resizeEvent(event)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor.fromHsv((self.phase * 2) % 360, 210, 255, 62))
+        painter.setPen(QColor(255, 255, 255, 65))
+        offset = self.phase % 90
+        for x in range(-self.height(), self.width(), 90):
+            painter.drawLine(x + offset, 0, x - self.height() + offset, self.height())
 
     def finish(self):
         self.timer.stop()
@@ -242,11 +219,31 @@ class Prank(QWidget):
             self.photo_loader.wait(9500)
         self.close()
 
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Escape, Qt.Key_F10):
-            self.finish()
-        else:
-            super().keyPressEvent(event)
+class GlobalExitKeys(QAbstractNativeEventFilter):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.ids = []
+
+    def register(self):
+        if sys.platform == "win32":
+            for hotkey_id, key in ((1, 0x1B), (2, 0x79)):
+                if ctypes.windll.user32.RegisterHotKey(None, hotkey_id, 0x4000, key):
+                    self.ids.append(hotkey_id)
+
+    def nativeEventFilter(self, event_type, message):
+        if sys.platform == "win32":
+            msg = ctypes.cast(int(message), ctypes.POINTER(ctypes.wintypes.MSG)).contents
+            if msg.message == 0x0312 and msg.wParam in self.ids:
+                QTimer.singleShot(0, self.callback)
+                return True, 0
+        return False, 0
+
+    def unregister(self):
+        if sys.platform == "win32":
+            for hotkey_id in self.ids:
+                ctypes.windll.user32.UnregisterHotKey(None, hotkey_id)
+        self.ids.clear()
 
 
 if __name__ == "__main__":
@@ -258,4 +255,8 @@ if __name__ == "__main__":
         )
         sys.exit(0)
     window = Prank()
+    hotkeys = GlobalExitKeys(window.finish)
+    app.installNativeEventFilter(hotkeys)
+    hotkeys.register()
+    app.aboutToQuit.connect(hotkeys.unregister)
     sys.exit(app.exec())
