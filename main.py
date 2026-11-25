@@ -81,6 +81,7 @@ class PhotoLoader(QThread):
         # stays responsive while the visual assets are being prepared.
         images = []
         gifs = []
+        first_batch_sent = False
         try:
             PHOTO_DIR.mkdir(parents=True, exist_ok=True)
             GIF_DIR.mkdir(parents=True, exist_ok=True)
@@ -96,7 +97,6 @@ class PhotoLoader(QThread):
                 if p.is_file() and p.suffix.lower() == ".gif" and p.stat().st_size > 0
             ][:40]
 
-            first_batch_sent = False
             for path in photo_paths:
                 if self.isInterruptionRequested():
                     break
@@ -129,7 +129,8 @@ class PhotoLoader(QThread):
                 self.loaded.emit((images, [], False))
             return
         except Exception:
-            self.loaded.emit(([], [], True))
+            if not first_batch_sent:
+                self.loaded.emit((images, gifs, True))
 
 class DanceDialog(QWidget):
     accepted = Signal()
