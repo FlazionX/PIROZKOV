@@ -1,13 +1,20 @@
 import sys
+import math
 import random
 import re
 import ctypes
 import ctypes.wintypes
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal, QAbstractNativeEventFilter
-from PySide6.QtGui import QPixmap, QPainter, QColor
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QMessageBox
+from PySide6.QtCore import (
+    Qt, QTimer, QUrl, QThread, Signal, QAbstractNativeEventFilter,
+    QPropertyAnimation, QEasingCurve
+)
+from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QLinearGradient
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QFrame, QMessageBox, QGraphicsOpacityEffect
+)
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -15,15 +22,15 @@ ASSETS = ROOT / "assets"
 PHOTO_DIR = ASSETS / "photos"
 MUSIC = ASSETS / "samo_soboy.mp3"
 SUBTITLES = ASSETS / "captions.srt"
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+MAX_PHOTOS_ON_SCREEN = 20
+PHOTO_INTERVAL_MS = 350
 
 PHOTO_URLS = [
     "https://cdn.informator.ua/%40dp/media/kiev/2023/10/12/65281577f0444.jpg",
     "https://salvemusic.com.ua/wp-content/uploads/2019/11/pirozhkov1.jpg",
     "https://www.concert-star.ru/wp-content/uploads/2019/10/13022019-006.jpg",
 ]
-PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-MAX_PHOTOS_ON_SCREEN = 35
-PHOTO_INTERVAL_MS = 900
 
 
 def parse_srt(path):
@@ -37,8 +44,8 @@ def parse_srt(path):
         match = re.fullmatch(r"\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*", stamp)
         if not match:
             raise ValueError("Invalid SRT timestamp")
-        hours, minutes, seconds, millis = match.groups()
-        return ((int(hours) * 60 + int(minutes)) * 60 + int(seconds)) * 1000 + int(millis.ljust(3, "0"))
+        h, m, s, ms = match.groups()
+        return ((int(h) * 60 + int(m)) * 60 + int(s)) * 1000 + int(ms.ljust(3, "0"))
 
     for block in blocks:
         lines = block.splitlines()
@@ -59,73 +66,291 @@ def parse_srt(path):
 
 
 class PhotoLoader(QThread):
-    finished_paths = Signal(list)
+    loaded = Signal(list)
 
     def run(self):
         PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-        # Download the starter images only when the user has not supplied them.
-        local_images = [p for p in PHOTO_DIR.iterdir() if p.suffix.lower() in PHOTO_EXTENSIONS]
-        if len(local_images) < 3:
+        local = [p for p in PHOTO_DIR.iterdir() if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS]
+        if len(local) < 3:
             import urllib.request
-            for index, url in enumerate(PHOTO_URLS, 1):
-                target = PHOTO_DIR / f"starter_{index}.jpg"
-                if target.exists() and target.stat().st_size > 0:
+            for i, url in enumerate(PHOTO_URLS, 1):
+                target = PHOTO_DIR / f"starter_{i}.jpg"
+                if target.exists() and target.stat().st_size:
                     continue
                 try:
-                    request = urllib.request.Request(url, headers={"User-Agent": "PIROZKOV-Prank/1.0"})
+                    request = urllib.request.Request(url, headers={"User-Agent": "DANCE-EXE/1.0"})
                     with urllib.request.urlopen(request, timeout=5) as response:
                         data = response.read(8 * 1024 * 1024 + 1)
                     if 0 < len(data) <= 8 * 1024 * 1024:
                         target.write_bytes(data)
                 except Exception:
                     pass
-
         paths = [
             str(p) for p in sorted(PHOTO_DIR.iterdir())
             if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS and p.stat().st_size > 0
         ][:300]
-        self.finished_paths.emit(paths)
+        self.loaded.emit(paths)
 
 
-class PhotoTile(QLabel):
-    def __init__(self, pixmap, size, parent=None):
+class DanceDialog(QWidget):
+    accepted = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("DANCE.EXE")
+        self.setFixedSize(430, 235)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
+        self.setStyleSheet("""
+            QWidget { background:#171329; color:white; font-family:'Segoe UI'; }
+            QLabel#question { font-size:25px; font-weight:900; }
+            QLabel#sub { color:#b9b4d0; font-size:12px; }
+            QPushButton { border:0; border-radius:10px; padding:12px 30px; font-size:16px; font-weight:800; }
+            QPushButton#yes { background:#ff3d9a; color:white; }
+            QPushButton#no { background:#38334d; color:white; }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 22)
+        layout.setSpacing(14)
+        title = QLabel("DANCE.EXE")
+        title.setStyleSheet("color:#ff69b4;font-size:13px;font-weight:900;letter-spacing:3px;")
+        title.setAlignment(Qt.AlignCenter)
+        question = QLabel("Хочешь Танцевать?")
+        question.setObjectName("question")
+        question.setAlignment(Qt.AlignCenter)
+        sub = QLabel("У тебя есть только один правильный ответ")
+        sub.setObjectName("sub")
+        sub.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(question)
+        layout.addWidget(sub)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(14)
+        self.yes = QPushButton("ДА")
+        self.yes.setObjectName("yes")
+        self.no = QPushButton("НЕТ")
+        self.no.setObjectName("no")
+        self.yes.clicked.connect(self.start_dance)
+        self.no.clicked.connect(self.evade_no)
+        buttons.addWidget(self.yes)
+        buttons.addWidget(self.no)
+        layout.addLayout(buttons)
+        self.no.raise_()
+
+    def start_dance(self):
+        self.accepted.emit()
+        self.close()
+
+    def evade_no(self):
+        max_x = max(0, self.width() - self.no.width() - 18)
+        max_y = max(0, self.height() - self.no.height() - 18)
+        self.no.move(random.randint(8, max_x), random.randint(8, max_y))
+
+
+class DesktopIconDance:
+    """Temporarily jiggles real Windows desktop icons and restores their original positions."""
+    LVM_FIRST = 0x1000
+    LVM_GETITEMCOUNT = LVM_FIRST + 4
+    LVM_GETITEMPOSITION = LVM_FIRST + 16
+    LVM_SETITEMPOSITION = LVM_FIRST + 15
+
+    class POINT(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    def __init__(self):
+        self.hwnd = None
+        self.process = None
+        self.remote_point = None
+        self.original = []
+        self.started = False
+        self.tick = 0
+
+    def _find_listview(self):
+        user32 = ctypes.windll.user32
+        found = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def enum_windows(hwnd, lparam):
+            shell = user32.FindWindowExW(hwnd, None, "SHELLDLL_DefView", None)
+            if shell:
+                view = user32.FindWindowExW(shell, None, "SysListView32", "FolderView")
+                if view:
+                    found.append(view)
+            return True
+
+        user32.EnumWindows(enum_windows, 0)
+        if not found:
+            progman = user32.FindWindowW("Progman", None)
+            shell = user32.FindWindowExW(progman, None, "SHELLDLL_DefView", None)
+            view = user32.FindWindowExW(shell, None, "SysListView32", "FolderView")
+            if view:
+                found.append(view)
+        return found[0] if found else None
+
+    def start(self):
+        if sys.platform != "win32":
+            return
+        try:
+            self.hwnd = self._find_listview()
+            if not self.hwnd:
+                return
+            pid = ctypes.wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(self.hwnd, ctypes.byref(pid))
+            PROCESS_VM_OPERATION = 0x0008
+            PROCESS_VM_READ = 0x0010
+            PROCESS_VM_WRITE = 0x0020
+            self.process = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, False, pid.value
+            )
+            if not self.process:
+                return
+            self.remote_point = ctypes.windll.kernel32.VirtualAllocEx(
+                self.process, None, ctypes.sizeof(self.POINT), 0x1000 | 0x2000, 0x04
+            )
+            if not self.remote_point:
+                self.stop()
+                return
+            count = ctypes.windll.user32.SendMessageW(self.hwnd, self.LVM_GETITEMCOUNT, 0, 0)
+            for index in range(min(int(count), 1000)):
+                ok = ctypes.windll.user32.SendMessageW(
+                    self.hwnd, self.LVM_GETITEMPOSITION, index, self.remote_point
+                )
+                if not ok:
+                    continue
+                point = self.POINT()
+                read = ctypes.c_size_t()
+                if ctypes.windll.kernel32.ReadProcessMemory(
+                    self.process, self.remote_point, ctypes.byref(point),
+                    ctypes.sizeof(point), ctypes.byref(read)
+                ):
+                    self.original.append((index, point.x, point.y))
+            self.started = bool(self.original)
+        except Exception:
+            self.stop()
+
+    def animate(self):
+        if not self.started:
+            return
+        self.tick += 1
+        for index, x, y in self.original:
+            dx = int(math.sin(self.tick * 0.20 + index * 1.7) * 13)
+            dy = int(math.cos(self.tick * 0.17 + index * 1.3) * 9)
+            packed = ((y + dy) & 0xFFFF) << 16 | ((x + dx) & 0xFFFF)
+            ctypes.windll.user32.SendMessageW(self.hwnd, self.LVM_SETITEMPOSITION, index, packed)
+
+    def stop(self):
+        if self.hwnd and self.original and self.process:
+            for index, x, y in self.original:
+                packed = (y & 0xFFFF) << 16 | (x & 0xFFFF)
+                try:
+                    ctypes.windll.user32.SendMessageW(self.hwnd, self.LVM_SETITEMPOSITION, index, packed)
+                except Exception:
+                    pass
+        if self.process and self.remote_point:
+            try:
+                ctypes.windll.kernel32.VirtualFreeEx(self.process, self.remote_point, 0, 0x8000)
+            except Exception:
+                pass
+        if self.process:
+            try:
+                ctypes.windll.kernel32.CloseHandle(self.process)
+            except Exception:
+                pass
+        self.process = None
+        self.remote_point = None
+        self.started = False
+
+
+class PhotoTile(QWidget):
+    def __init__(self, pixmap, size, parent):
         super().__init__(parent)
         self.setFixedSize(size, size)
-        self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("background: transparent; border: none;")
-        if pixmap and not pixmap.isNull():
-            scaled = pixmap.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            x = max(0, (scaled.width() - size) // 2)
-            y = max(0, (scaled.height() - size) // 2)
-            self.setPixmap(scaled.copy(x, y, size, size))
+        self.pixmap = pixmap
+        self.angle = random.uniform(-10, 10)
+        self.vx = random.uniform(-3.0, 3.0)
+        self.vy = random.uniform(-2.5, 2.5)
+        self.wobble = random.uniform(0, math.tau)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, event):
+        if self.pixmap.isNull():
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        scaled = self.pixmap.scaled(self.width(), self.height(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        sx = max(0, (scaled.width() - self.width()) // 2)
+        sy = max(0, (scaled.height() - self.height()) // 2)
+        p.translate(self.width() / 2, self.height() / 2)
+        p.rotate(self.angle)
+        p.drawPixmap(-self.width() / 2, -self.height() / 2, scaled.copy(sx, sy, self.width(), self.height()))
 
 
-class CaptionPopup(QLabel):
+class CaptionWindow(QFrame):
     def __init__(self, caption, parent):
-        super().__init__(caption, parent)
-        self.setAlignment(Qt.AlignCenter)
-        self.setWordWrap(True)
-        self.setMinimumWidth(240)
-        self.setMaximumWidth(440)
-        self.setMargin(13)
-        self.setStyleSheet(
-            "QLabel { color: #ffffff; background-color: rgba(12, 12, 24, 225);"
-            "border: 1px solid rgba(255,255,255,210); border-radius: 12px;"
-            "font-family: Segoe UI; font-size: 19px; font-weight: 800; }"
-        )
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QFrame { background:rgba(13,10,28,225); border:1px solid rgba(255,255,255,210); border-radius:12px; }
+            QLabel#brand { color:#ff4fa3; font-size:11px; font-weight:900; letter-spacing:2px; }
+            QLabel#words { color:white; font-size:19px; font-weight:800; }
+        """)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        box = QVBoxLayout(self)
+        box.setContentsMargins(14, 9, 14, 12)
+        box.setSpacing(5)
+        brand = QLabel("DANCE SYSTEM")
+        brand.setObjectName("brand")
+        words = QLabel(caption)
+        words.setObjectName("words")
+        words.setWordWrap(True)
+        words.setMaximumWidth(410)
+        box.addWidget(brand)
+        box.addWidget(words)
         self.adjustSize()
+
+
+class HeroSplash(QWidget):
+    def __init__(self, pixmap, parent):
+        super().__init__(parent)
+        self.pixmap = pixmap
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setGeometry(
+            parent.width() // 2 - 95, parent.height() // 2 - 95, 190, 190
+        )
+        self.opacity = QGraphicsOpacityEffect(self)
+        self.opacity.setOpacity(1.0)
+        self.setGraphicsEffect(self.opacity)
+        self.zoom = QPropertyAnimation(self, b"geometry", self)
+        self.zoom.setDuration(3600)
+        self.zoom.setStartValue(self.geometry())
+        self.zoom.setEndValue(parent.rect().adjusted(
+            parent.width() // 2 - 190, parent.height() // 2 - 190,
+            -parent.width() // 2 + 190, -parent.height() // 2 + 190
+        ))
+        self.zoom.setEasingCurve(QEasingCurve.OutCubic)
+        self.fade = QPropertyAnimation(self.opacity, b"opacity", self)
+        self.fade.setDuration(1200)
+        self.fade.setStartValue(1.0)
+        self.fade.setEndValue(0.0)
+        self.zoom.finished.connect(self.fade.start)
+        self.fade.finished.connect(self.deleteLater)
+        self.zoom.start()
+
+    def paintEvent(self, event):
+        if self.pixmap.isNull():
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        scaled = self.pixmap.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        x = max(0, (scaled.width() - self.width()) // 2)
+        y = max(0, (scaled.height() - self.height()) // 2)
+        p.drawPixmap(self.rect(), scaled, scaled.rect().adjusted(x, y, -x, -y))
 
 
 class Prank(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PIROZKOV.exe")
-        flags = (
-            Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-            | Qt.Tool
-            | Qt.WindowDoesNotAcceptFocus
-        )
+        self.setWindowTitle("DANCE.EXE")
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus
         if hasattr(Qt, "WindowTransparentForInput"):
             flags |= Qt.WindowTransparentForInput
         self.setWindowFlags(flags)
@@ -140,34 +365,37 @@ class Prank(QWidget):
         self.caption_popups = []
         self.captions = parse_srt(SUBTITLES)
         self.active_caption_indexes = set()
+        self.icon_dance = DesktopIconDance()
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
         self.player.setAudioOutput(self.audio)
-        self.audio.setVolume(0.85)
+        self.audio.setVolume(0.88)
         self.player.mediaStatusChanged.connect(self.on_media_status)
         self.player.errorOccurred.connect(self.on_media_error)
         self.player.setSource(QUrl.fromLocalFile(str(MUSIC)))
 
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self.animate)
-        self.animation_timer.start(40)
-
-        self.photo_timer = QTimer(self)
-        self.photo_timer.timeout.connect(self.spawn_photo)
-        self.photo_timer.start(PHOTO_INTERVAL_MS)
-
+        self.animation_timer.start(35)
         self.caption_timer = QTimer(self)
         self.caption_timer.timeout.connect(self.update_captions)
         self.caption_timer.start(80)
+        self.photo_timer = QTimer(self)
+        self.photo_timer.timeout.connect(self.spawn_photo)
+        self.photo_timer.start(PHOTO_INTERVAL_MS)
+        self.icon_timer = QTimer(self)
+        self.icon_timer.timeout.connect(self.icon_dance.animate)
+        self.icon_timer.start(70)
 
         self.photo_loader = PhotoLoader(self)
-        self.photo_loader.finished_paths.connect(self.set_photos)
+        self.photo_loader.loaded.connect(self.set_photos)
         self.photo_loader.start()
 
         self.show()
         self.apply_no_activate_style()
-        QTimer.singleShot(1200, self.start_music)
+        QTimer.singleShot(350, self.icon_dance.start)
+        QTimer.singleShot(700, self.player.play)
 
     def apply_no_activate_style(self):
         if sys.platform != "win32":
@@ -175,20 +403,12 @@ class Prank(QWidget):
         try:
             hwnd = int(self.winId())
             GWL_EXSTYLE = -20
-            WS_EX_TRANSPARENT = 0x00000020
-            WS_EX_TOOLWINDOW = 0x00000080
-            WS_EX_NOACTIVATE = 0x08000000
-            get_long = ctypes.windll.user32.GetWindowLongW
-            set_long = ctypes.windll.user32.SetWindowLongW
-            style = get_long(hwnd, GWL_EXSTYLE)
-            set_long(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
-            HWND_TOPMOST = -1
-            SWP_NOSIZE = 0x0001
-            SWP_NOMOVE = 0x0002
-            SWP_NOACTIVATE = 0x0010
-            ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            style |= 0x00000020 | 0x00000080 | 0x08000000
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
         except Exception as exc:
-            self.write_log("Не удалось включить режим без активации: " + str(exc))
+            self.write_log("Overlay style error: " + str(exc))
 
     def write_log(self, message):
         try:
@@ -196,87 +416,114 @@ class Prank(QWidget):
         except Exception:
             pass
 
-    def start_music(self):
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
-            self.player.play()
-
     def set_photos(self, paths):
         self.photos = []
         for path in paths:
-            pixmap = QPixmap(path)
-            if not pixmap.isNull():
-                self.photos.append(pixmap)
-        if not self.photos:
-            self.write_log("Фотографии не найдены. Добавь JPG/PNG в assets/photos.")
-
-    def animate(self):
-        self.phase = (self.phase + 1) % 360
-        self.update()
+            image = QPixmap(path)
+            if not image.isNull():
+                self.photos.append(image)
+        if self.photos:
+            HeroSplash(random.choice(self.photos), self).show()
+        else:
+            self.write_log("Фотографии не найдены. Положи JPG/PNG в assets/photos.")
 
     def spawn_photo(self):
-        if not self.photos or self.width() < 200 or self.height() < 200:
+        if not self.photos or len(self.tiles) >= MAX_PHOTOS_ON_SCREEN:
             return
-        size = random.choice((112, 128, 144, 160, 176))
+        size = random.choice((112, 124, 136, 148))
         tile = PhotoTile(random.choice(self.photos), size, self)
-        max_x = max(0, self.width() - size)
-        max_y = max(0, self.height() - size)
-        tile.move(random.randint(0, max_x), random.randint(0, max_y))
+        edge = random.choice(("left", "right", "top", "bottom"))
+        if edge == "left":
+            x, y = -size, random.randint(0, max(0, self.height() - size))
+            tile.vx = random.uniform(2.0, 4.0)
+        elif edge == "right":
+            x, y = self.width(), random.randint(0, max(0, self.height() - size))
+            tile.vx = random.uniform(-4.0, -2.0)
+        elif edge == "top":
+            x, y = random.randint(0, max(0, self.width() - size)), -size
+            tile.vy = random.uniform(2.0, 4.0)
+        else:
+            x, y = random.randint(0, max(0, self.width() - size)), self.height()
+            tile.vy = random.uniform(-4.0, -2.0)
+        tile.move(x, y)
         tile.show()
-        tile.raise_()
         self.tiles.append(tile)
-        if len(self.tiles) > MAX_PHOTOS_ON_SCREEN:
-            old = self.tiles.pop(0)
-            old.deleteLater()
         for _, popup in self.caption_popups:
             popup.raise_()
 
+    def animate(self):
+        self.phase += 1
+        for tile in list(self.tiles):
+            x = tile.x() + tile.vx
+            y = tile.y() + tile.vy
+            tile.wobble += 0.055
+            tile.angle = math.sin(tile.wobble) * 11
+            if x < -tile.width() - 20 or x > self.width() + 20 or y < -tile.height() - 20 or y > self.height() + 20:
+                self.tiles.remove(tile)
+                tile.deleteLater()
+                continue
+            tile.move(int(x + math.sin(tile.wobble * 0.7) * 0.7), int(y + math.cos(tile.wobble) * 0.7))
+            tile.update()
+        self.update()
+
     def update_captions(self):
         position = self.player.position()
-        currently_active = set()
-        for index, (start, end, caption) in enumerate(self.captions):
+        active = set()
+        for index, (start, end, words) in enumerate(self.captions):
             if start <= position < end:
-                currently_active.add(index)
+                active.add(index)
                 if index not in self.active_caption_indexes:
-                    popup = CaptionPopup(caption, self)
-                    popup.adjustSize()
-                    x = random.randint(20, max(20, self.width() - popup.width() - 20))
-                    y = random.randint(70, max(70, self.height() - popup.height() - 70))
+                    popup = CaptionWindow(words, self)
+                    x = random.randint(25, max(25, self.width() - popup.width() - 25))
+                    y = random.randint(70, max(70, self.height() - popup.height() - 80))
                     popup.move(x, y)
                     popup.show()
                     popup.raise_()
                     self.caption_popups.append((index, popup))
         for index, popup in list(self.caption_popups):
-            if index not in currently_active:
+            if index not in active:
                 popup.deleteLater()
                 self.caption_popups.remove((index, popup))
-        self.active_caption_indexes = currently_active
+        self.active_caption_indexes = active
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        # Low-opacity disco wash reaches the full screen, including the taskbar.
+        p.fillRect(self.rect(), QColor.fromHsv((self.phase * 2) % 360, 180, 255, 18))
+        cx, cy = w // 2, h // 2
+        p.setPen(Qt.NoPen)
+        for i in range(48):
+            angle = (i / 48.0) * math.tau + self.phase * 0.012
+            reach = max(w, h) * 1.2
+            x2 = int(cx + math.cos(angle) * reach)
+            y2 = int(cy + math.sin(angle) * reach)
+            hue = (i * 7 + self.phase * 2) % 360
+            p.setPen(QPen(QColor.fromHsv(hue, 255, 255, 35), 3))
+            p.drawLine(cx, cy, x2, y2)
+        # Coloured disco strip over the taskbar area.
+        gradient = QLinearGradient(0, h - 30, w, h)
+        gradient.setColorAt(0.0, QColor(255, 0, 130, 50))
+        gradient.setColorAt(0.5, QColor(80, 70, 255, 55))
+        gradient.setColorAt(1.0, QColor(0, 230, 255, 50))
+        p.fillRect(0, h - 30, w, 30, gradient)
 
     def on_media_status(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self.finish()
-        elif status in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
-            if self.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
-                self.player.play()
 
     def on_media_error(self, error, message):
         if error != QMediaPlayer.Error.NoError:
-            self.write_log("Ошибка музыки: " + str(message))
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        # Subtle colour wash: the desktop remains clearly visible underneath.
-        painter.fillRect(self.rect(), QColor.fromHsv((self.phase * 2) % 360, 175, 255, 22))
-        painter.setPen(QColor(255, 255, 255, 22))
-        offset = self.phase % 120
-        for x in range(-self.height(), self.width(), 150):
-            painter.drawLine(x + offset, 0, x - self.height() + offset, self.height())
+            self.write_log("Ошибка воспроизведения музыки: " + str(message))
 
     def finish(self):
         self.animation_timer.stop()
-        self.photo_timer.stop()
         self.caption_timer.stop()
+        self.photo_timer.stop()
+        self.icon_timer.stop()
         self.player.stop()
+        self.icon_dance.stop()
         if self.photo_loader.isRunning():
             self.photo_loader.quit()
             self.photo_loader.wait(9500)
@@ -291,7 +538,6 @@ class GlobalExitKeys(QAbstractNativeEventFilter):
 
     def register(self):
         if sys.platform == "win32":
-            # Ctrl + Shift + F10
             if ctypes.windll.user32.RegisterHotKey(None, 2, 0x0002 | 0x0004 | 0x4000, 0x79):
                 self.ids.append(2)
 
@@ -313,17 +559,26 @@ class GlobalExitKeys(QAbstractNativeEventFilter):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
-    if not MUSIC.is_file():
-        QMessageBox.information(
-            None,
-            "PIROZKOV.exe",
-            "Не найдена музыка.\nПоложи файл сюда:\nassets/samo_soboy.mp3",
-        )
-        sys.exit(0)
+    dialog = DanceDialog()
+    dialog.move(
+        QApplication.primaryScreen().geometry().center().x() - dialog.width() // 2,
+        QApplication.primaryScreen().geometry().center().y() - dialog.height() // 2,
+    )
 
-    window = Prank()
-    hotkeys = GlobalExitKeys(window.finish)
-    app.installNativeEventFilter(hotkeys)
-    hotkeys.register()
-    app.aboutToQuit.connect(hotkeys.unregister)
+    def launch_dance():
+        if not MUSIC.is_file():
+            QMessageBox.information(
+                None, "DANCE.EXE",
+                "Не найдена музыка.\nПоложи файл сюда:\nassets/samo_soboy.mp3"
+            )
+            return
+        global prank_window, exit_hotkeys
+        prank_window = Prank()
+        exit_hotkeys = GlobalExitKeys(prank_window.finish)
+        app.installNativeEventFilter(exit_hotkeys)
+        exit_hotkeys.register()
+        app.aboutToQuit.connect(exit_hotkeys.unregister)
+
+    dialog.accepted.connect(launch_dance)
+    dialog.show()
     sys.exit(app.exec())
