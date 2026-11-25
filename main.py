@@ -91,7 +91,15 @@ class PhotoLoader(QThread):
                 and p.stat().st_size > 0
             ][:120]
 
+            gifs = [
+                str(p) for p in sorted(GIF_DIR.iterdir())
+                if p.is_file() and p.suffix.lower() == ".gif" and p.stat().st_size > 0
+            ][:40]
+
+            first_batch_sent = False
             for path in photo_paths:
+                if self.isInterruptionRequested():
+                    break
                 try:
                     reader = QImageReader(str(path))
                     reader.setAutoTransform(True)
@@ -105,19 +113,23 @@ class PhotoLoader(QThread):
                     )
                     left = max(0, (image.width() - 256) // 2)
                     top = max(0, (image.height() - 256) // 2)
-                    image = image.copy(left, top, 256, 256)
-                    images.append(image)
+                    images.append(image.copy(left, top, 256, 256))
+                    # Start the intro after only a few thumbnails are ready;
+                    # the remaining photos continue loading in the background.
+                    if not first_batch_sent and len(images) >= 8:
+                        self.loaded.emit((images.copy(), gifs, True))
+                        images.clear()
+                        first_batch_sent = True
                 except Exception:
                     continue
 
-            gifs = [
-                str(p) for p in sorted(GIF_DIR.iterdir())
-                if p.is_file() and p.suffix.lower() == ".gif" and p.stat().st_size > 0
-            ][:40]
+            if not first_batch_sent:
+                self.loaded.emit((images, gifs, True))
+            elif images and not self.isInterruptionRequested():
+                self.loaded.emit((images, [], False))
+            return
         except Exception:
-            pass
-
-        self.loaded.emit((images, gifs))
+            self.loaded.emit(([], [], True))
 
 class DanceDialog(QWidget):
     accepted = Signal()
@@ -534,8 +546,14 @@ class Prank(QWidget):
         self.photo_timer.start(PHOTO_INTERVAL_MS)
 
     def set_photos(self, payload):
-        images, self.gif_paths = payload
-        self.photos = [QPixmap.fromImage(image) for image in images if not image.isNull()]
+        images, gifs, is_initial_batch = payload
+        loaded = [QPixmap.fromImage(image) for image in images if not image.isNull()]
+        if not is_initial_batch:
+            self.photos.extend(loaded)
+            return
+
+        self.gif_paths = gifs
+        self.photos = loaded
         if self.photos:
             splash = HeroSplash(random.choice(self.photos), self)
             splash.show()
@@ -739,8 +757,8 @@ class Prank(QWidget):
             tile.deleteLater()
         self.tiles.clear()
         if self.photo_loader.isRunning():
-            self.photo_loader.quit()
-            self.photo_loader.wait(3000)
+            self.photo_loader.requestInterruption()
+            self.photo_loader.wait()
         self.close()
 
 
