@@ -134,6 +134,9 @@ class DanceDialog(QWidget):
         buttons.addWidget(self.yes)
         buttons.addWidget(self.no)
         layout.addLayout(buttons)
+        buttons.removeWidget(self.no)
+        self.no.setParent(self)
+        self.no.setGeometry(292, 177, 112, 42)
         self.no.raise_()
 
     def start_dance(self):
@@ -141,9 +144,9 @@ class DanceDialog(QWidget):
         self.close()
 
     def evade_no(self):
-        max_x = max(0, self.width() - self.no.width() - 18)
-        max_y = max(0, self.height() - self.no.height() - 18)
-        self.no.move(random.randint(8, max_x), random.randint(8, max_y))
+        max_x = max(12, self.width() - self.no.width() - 12)
+        max_y = max(12, self.height() - self.no.height() - 12)
+        self.no.move(random.randint(12, max_x), random.randint(12, max_y))
 
 
 class DesktopIconDance:
@@ -198,7 +201,17 @@ class DesktopIconDance:
             PROCESS_VM_OPERATION = 0x0008
             PROCESS_VM_READ = 0x0010
             PROCESS_VM_WRITE = 0x0020
-            self.process = ctypes.windll.kernel32.OpenProcess(
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+            kernel32.OpenProcess.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.BOOL, ctypes.wintypes.DWORD]
+            kernel32.OpenProcess.restype = ctypes.wintypes.HANDLE
+            kernel32.VirtualAllocEx.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, ctypes.wintypes.DWORD, ctypes.wintypes.DWORD]
+            kernel32.VirtualAllocEx.restype = ctypes.c_void_p
+            kernel32.ReadProcessMemory.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+            kernel32.ReadProcessMemory.restype = ctypes.wintypes.BOOL
+            user32.SendMessageW.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.UINT, ctypes.c_size_t, ctypes.c_ssize_t]
+            user32.SendMessageW.restype = ctypes.c_ssize_t
+            self.process = kernel32.OpenProcess(
                 PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, False, pid.value
             )
             if not self.process:
@@ -394,7 +407,6 @@ class Prank(QWidget):
 
         self.show()
         self.apply_no_activate_style()
-        QTimer.singleShot(350, self.icon_dance.start)
         QTimer.singleShot(700, self.player.play)
 
     def apply_no_activate_style(self):
@@ -458,10 +470,16 @@ class Prank(QWidget):
             y = tile.y() + tile.vy
             tile.wobble += 0.055
             tile.angle = math.sin(tile.wobble) * 11
-            if x < -tile.width() - 20 or x > self.width() + 20 or y < -tile.height() - 20 or y > self.height() + 20:
-                self.tiles.remove(tile)
-                tile.deleteLater()
-                continue
+                if x < 0 and tile.vx < 0:
+                tile.vx *= -1
+            if x + tile.width() > self.width() and tile.vx > 0:
+                tile.vx *= -1
+            if y < 0 and tile.vy < 0:
+                tile.vy *= -1
+            if y + tile.height() > self.height() and tile.vy > 0:
+                tile.vy *= -1
+            x = min(max(0, x), max(0, self.width() - tile.width()))
+            y = min(max(0, y), max(0, self.height() - tile.height()))
             tile.move(int(x + math.sin(tile.wobble * 0.7) * 0.7), int(y + math.cos(tile.wobble) * 0.7))
             tile.update()
         self.update()
@@ -471,6 +489,8 @@ class Prank(QWidget):
         active = set()
         for index, (start, end, words) in enumerate(self.captions):
             if start <= position < end:
+                if not self.icon_dance.started:
+                    self.icon_dance.start()
                 active.add(index)
                 if index not in self.active_caption_indexes:
                     popup = CaptionWindow(words, self)
