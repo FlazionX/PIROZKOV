@@ -19,7 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFrame, QMessageBox, QGraphicsOpacityEffect
+    QFrame, QMessageBox, QFileDialog, QGraphicsOpacityEffect
 )
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -34,11 +34,43 @@ MAX_PHOTOS_ON_SCREEN = 20
 MAX_GIFS_ON_SCREEN = 2
 PHOTO_INTERVAL_MS = 420
 
-PHOTO_URLS = [
-    "https://cdn.informator.ua/%40dp/media/kiev/2023/10/12/65281577f0444.jpg",
-    "https://salvemusic.com.ua/wp-content/uploads/2019/11/pirozhkov1.jpg",
-    "https://www.concert-star.ru/wp-content/uploads/2019/10/13022019-006.jpg",
-]
+def find_music_file():
+    """Find the supplied song in the common folders used after unzipping."""
+    exact_candidates = [
+        ASSETS / "samo_soboy.mp3",
+        ROOT / "samo_soboy.mp3",
+        ASSETS / "samo_soboy.mp3.mp3",
+        Path.cwd() / "assets" / "samo_soboy.mp3",
+        Path.cwd() / "samo_soboy.mp3",
+    ]
+    for candidate in exact_candidates:
+        if candidate.is_file() and candidate.stat().st_size > 0:
+            return candidate
+
+    search_folders = (
+        ASSETS,
+        ROOT,
+        ASSETS / "music",
+        ROOT / "music",
+    )
+    audio_extensions = {".mp3", ".wav", ".m4a", ".aac"}
+    for folder in search_folders:
+        try:
+            files = [
+                item for item in folder.iterdir()
+                if item.is_file() and item.suffix.lower() in audio_extensions
+                and item.stat().st_size > 0
+            ]
+        except (OSError, FileNotFoundError):
+            continue
+        # Prefer the expected name; otherwise use the first audio file.
+        files.sort(key=lambda item: (
+            0 if item.stem.lower() == "samo_soboy" else 1,
+            item.name.lower()
+        ))
+        if files:
+            return files[0]
+    return None
 
 
 def parse_srt(path):
@@ -138,7 +170,7 @@ class DanceDialog(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DANCE.EXE")
-        self.setFixedSize(340, 155)
+        self.setFixedSize(320, 145)
         self.setWindowFlags(
             Qt.Dialog
             | Qt.WindowTitleHint
@@ -148,8 +180,8 @@ class DanceDialog(QWidget):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 14)
-        layout.setSpacing(18)
+        layout.setContentsMargins(14, 12, 14, 10)
+        layout.setSpacing(13)
 
         question = QLabel("Хочешь Танцевать?")
         question.setAlignment(Qt.AlignCenter)
@@ -455,8 +487,9 @@ class HeroSplash(QWidget):
         p.end()
 
 class Prank(QWidget):
-    def __init__(self):
+    def __init__(self, music_path):
         super().__init__()
+        self.music_path = Path(music_path)
         self.setWindowTitle("DANCE.EXE")
         flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus
         if hasattr(Qt, "WindowTransparentForInput"):
@@ -484,7 +517,7 @@ class Prank(QWidget):
         self.audio.setVolume(0.88)
         self.player.mediaStatusChanged.connect(self.on_media_status)
         self.player.errorOccurred.connect(self.on_media_error)
-        self.player.setSource(QUrl.fromLocalFile(str(MUSIC)))
+        self.player.setSource(QUrl.fromLocalFile(str(self.music_path)))
 
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self.animate)
@@ -498,6 +531,10 @@ class Prank(QWidget):
         self.photo_loader = PhotoLoader(self)
         self.photo_loader.loaded.connect(self.set_photos)
         self.photo_loader.start()
+
+        # If a photo folder contains very large images, music still starts
+        # promptly instead of waiting for every image to decode.
+        QTimer.singleShot(2500, self.start_music)
 
         self.show()
         self.apply_no_activate_style()
@@ -555,13 +592,16 @@ class Prank(QWidget):
             return
 
         self.gif_paths = gifs
+        if self.music_started:
+            self.photos.extend(loaded)
+            return
+
         self.photos = loaded
         if self.photos:
             splash = HeroSplash(random.choice(self.photos), self)
             splash.show()
-            QTimer.singleShot(4700, self.start_music)
+            QTimer.singleShot(4300, self.start_music)
         else:
-            self.write_log("Фотографии не найдены. Положи JPG/PNG в assets/photos.")
             QTimer.singleShot(500, self.start_music)
 
     def spawn_photo(self):
@@ -744,8 +784,23 @@ class Prank(QWidget):
             self.finish()
 
     def on_media_error(self, error, message):
-        if error != QMediaPlayer.Error.NoError:
-            self.write_log("Ошибка воспроизведения музыки: " + str(message))
+        if error == QMediaPlayer.Error.NoError:
+            return
+        details = str(message)
+        self.write_log(
+            "Ошибка воспроизведения музыки: " + details
+            + "\nФайл: " + str(self.music_path)
+        )
+        if not getattr(self, "_playback_error_shown", False):
+            self._playback_error_shown = True
+            self.finish()
+            QMessageBox.warning(
+                None,
+                "DANCE.EXE",
+                "Windows не смогла воспроизвести этот аудиофайл.\n"
+                "Попробуй обычный MP3-файл.\n\n"
+                + details
+            )
 
     def finish(self):
         self.animation_timer.stop()
@@ -800,14 +855,20 @@ if __name__ == "__main__":
     )
 
     def launch_dance():
-        if not MUSIC.is_file():
-            QMessageBox.information(
-                None, "DANCE.EXE",
-                "Не найдена музыка.\nПоложи файл сюда:\nassets/samo_soboy.mp3"
+        music_file = find_music_file()
+        if music_file is None:
+            selected, _ = QFileDialog.getOpenFileName(
+                dialog,
+                "Выбери музыку для DANCE.EXE",
+                str(ROOT),
+                "Аудиофайлы (*.mp3 *.wav *.m4a *.aac);;Все файлы (*.*)"
             )
-            return
+            if not selected:
+                return
+            music_file = Path(selected)
+
         global prank_window, exit_hotkeys
-        prank_window = Prank()
+        prank_window = Prank(music_file)
         exit_hotkeys = GlobalExitKeys(prank_window.finish)
         app.installNativeEventFilter(exit_hotkeys)
         exit_hotkeys.register()
