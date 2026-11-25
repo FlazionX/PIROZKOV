@@ -11,6 +11,9 @@ on:
       - "desktop_icons.cpp"
       - ".github/workflows/build.yml"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -52,6 +55,25 @@ jobs:
           if (Test-Path assets/photos) { Copy-Item assets/photos/* dist/PIROZKOV/assets/photos/ -Recurse -Force }
           if (Test-Path assets/gifs) { Copy-Item assets/gifs/* dist/PIROZKOV/assets/gifs/ -Recurse -Force }
 
+      - name: Publish stable GitHub Release download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archivePath = "DANCE.EXE-Windows.zip"
+          if (Test-Path $archivePath) { Remove-Item $archivePath -Force }
+          Compress-Archive -Path "dist/PIROZKOV/*" -DestinationPath $archivePath -CompressionLevel Optimal
+
+          $hash = (Get-FileHash $archivePath -Algorithm SHA256).Hash.ToLower()
+          "$hash  DANCE.EXE-Windows.zip" | Out-File -Encoding ascii "DANCE.EXE-Windows.zip.sha256"
+
+          gh release view dance-exe-latest --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create dance-exe-latest $archivePath "DANCE.EXE-Windows.zip.sha256" --repo $env:GITHUB_REPOSITORY --title "DANCE.EXE for Windows" --notes "Windows x64 build. Download DANCE.EXE-Windows.zip. SHA-256 checksum is included as a separate asset. Source commit: $env:GITHUB_SHA." --latest
+          } else {
+            gh release upload dance-exe-latest $archivePath "DANCE.EXE-Windows.zip.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish the stable GitHub Release download." }
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
