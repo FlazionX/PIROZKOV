@@ -2,10 +2,11 @@ import sys
 import random
 import re
 import math
+import threading
 import urllib.request
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, QThread, Signal
 from PySide6.QtGui import QPixmap, QPainter, QColor
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QFrame, QMessageBox
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -22,26 +23,54 @@ PHOTO_URLS = [
     "https://www.concert-star.ru/wp-content/uploads/2019/10/13022019-006.jpg",
 ]
 
+
 def parse_srt(path):
     if not path.exists():
         return []
     raw = path.read_text(encoding="utf-8-sig", errors="ignore")
     blocks = re.split(r"\n\s*\n", raw.strip())
     result = []
+
     def to_ms(stamp):
         h, m, rest = stamp.strip().replace(",", ".").split(":")
         sec, milli = rest.split(".")
         return ((int(h) * 60 + int(m)) * 60 + int(sec)) * 1000 + int(milli.ljust(3, "0")[:3])
+
     for block in blocks:
         lines = block.splitlines()
-        if len(lines) < 3 or "-->" not in lines[1]:
+        time_line = next((line for line in lines if "-->" in line), None)
+        if not time_line:
             continue
         try:
-            start, end = [to_ms(part) for part in lines[1].split("-->")]
-            result.append((start, end, " ".join(lines[2:])))
+            start, end = [to_ms(part.strip().split()[0]) for part in time_line.split("-->")]
+            text = " ".join(line.strip() for line in lines[lines.index(time_line) + 1:] if line.strip())
+            if text and end > start:
+                result.append((start, end, text))
         except (ValueError, IndexError):
-            pass
-    return result
+            continue
+    return sorted(result, key=lambda item: item[0])
+
+
+class PhotoLoader(QThread):
+    finished_paths = Signal(list)
+
+    def run(self):
+        PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+        for index, url in enumerate(PHOTO_URLS, 1):
+            target = PHOTO_DIR / f"pirozkov_{index}.jpg"
+            if target.exists() and target.stat().st_size > 0:
+                continue
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": "PIROZKOV-Prank/1.0"})
+                with urllib.request.urlopen(request, timeout=7) as response:
+                    data = response.read(8 * 1024 * 1024 + 1)
+                if 0 < len(data) <= 8 * 1024 * 1024:
+                    target.write_bytes(data)
+            except Exception:
+                pass
+        paths = [str(p) for p in sorted(PHOTO_DIR.iterdir()) if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
+        self.finished_paths.emit(paths)
+
 
 class PhotoCard(QFrame):
     def __init__(self, pixmap, parent=None):
@@ -57,26 +86,40 @@ class PhotoCard(QFrame):
             self.image.setStyleSheet("color:#ffdf55;font-size:22px;font-weight:900;")
         self.setFixedSize(200, 240)
 
+
+class CaptionPopup(QLabel):
+    def __init__(self, text, parent):
+        super().__init__(text, parent)
+        self.setAlignment(Qt.AlignCenter)
+        self.setWordWrap(True)
+        self.setStyleSheet(
+            "color:white;background:rgba(20,10,35,225);"
+            "border:2px solid white;border-radius:14px;padding:10px;"
+            "font-size:20px;font-weight:900;"
+        )
+        self.setFixedWidth(390)
+        self.adjustSize()
+
+
 class Prank(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PIROZKOV.exe")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.showFullScreen()
         self.phase = 0
         self.photos = []
         self.cards = []
+        self.caption_popups = []
         self.captions = parse_srt(SUBTITLES)
-        self.last_caption = -1
+        self.shown_captions = set()
 
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
         self.player.setAudioOutput(self.audio)
         self.audio.setVolume(0.85)
         self.player.mediaStatusChanged.connect(self.on_media_status)
-        if MUSIC.exists():
-            self.player.setSource(QUrl.fromLocalFile(str(MUSIC)))
-            self.player.play()
+        self.player.errorOccurred.connect(self.on_media_error)
+        self.player.setSource(QUrl.fromLocalFile(str(MUSIC)))
 
         self.icons = []
         names = ["Этот компьютер", "Корзина", "Папка", "PIROZKOV", "Музыка", "Фото", "Игры", "Документы"]
@@ -85,96 +128,99 @@ class Prank(QWidget):
             icon.setAlignment(Qt.AlignCenter)
             icon.setStyleSheet("color:white;background:rgba(15,15,30,145);border:1px solid white;border-radius:9px;padding:7px;font-size:13px;")
             icon.setFixedSize(104, 72)
-            icon.move(35 + (i % 4) * 125, 55 + (i // 4) * 105)
             self.icons.append(icon)
 
-        self.caption = QLabel("", self)
-        self.caption.setAlignment(Qt.AlignCenter)
-        self.caption.setWordWrap(True)
-        self.caption.setStyleSheet("color:white;background:rgba(20,10,35,210);border:2px solid white;border-radius:14px;padding:12px;font-size:23px;font-weight:900;")
-
         self.skip = QPushButton("ПРОПУСТИТЬ", self)
-        self.skip.setStyleSheet("QPushButton{background:#ffdf3e;color:#16121f;border:0;border-radius:12px;padding:12px 22px;font-size:16px;font-weight:900;} QPushButton:hover{background:white;}")
+        self.skip.setStyleSheet(
+            "QPushButton{background:#ffdf3e;color:#16121f;border:0;border-radius:12px;"
+            "padding:12px 22px;font-size:16px;font-weight:900;}"
+            "QPushButton:hover{background:white;}"
+        )
         self.skip.clicked.connect(self.finish)
         self.skip.adjustSize()
-        self.skip.move(self.width() - self.skip.width() - 28, 24)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
         self.timer.start(35)
         self.caption_timer = QTimer(self)
-        self.caption_timer.timeout.connect(self.update_caption)
+        self.caption_timer.timeout.connect(self.update_captions)
         self.caption_timer.start(100)
-        QTimer.singleShot(100, self.load_photos)
 
-    def load_photos(self):
-        PHOTO_DIR.mkdir(parents=True, exist_ok=True)
-        for index, url in enumerate(PHOTO_URLS, 1):
-            target = PHOTO_DIR / f"pirozkov_{index}.jpg"
-            if not target.exists():
-                try:
-                    request = urllib.request.Request(url, headers={"User-Agent": "PIROZKOV-Prank/1.0"})
-                    with urllib.request.urlopen(request, timeout=5) as response:
-                        target.write_bytes(response.read())
-                except Exception:
-                    continue
-        for file in sorted(PHOTO_DIR.glob("*")):
-            pixmap = QPixmap(str(file))
+        self.photo_loader = PhotoLoader(self)
+        self.photo_loader.finished_paths.connect(self.set_photos)
+        self.photo_loader.start()
+
+        self.showFullScreen()
+        self.position_icons()
+        self.skip.move(self.width() - self.skip.width() - 28, 24)
+        QTimer.singleShot(400, self.player.play)
+
+    def position_icons(self):
+        for i, icon in enumerate(self.icons):
+            icon.move(35 + (i % 4) * 125, 55 + (i // 4) * 105)
+
+    def set_photos(self, paths):
+        self.photos.clear()
+        for path in paths:
+            pixmap = QPixmap(path)
             if not pixmap.isNull():
                 self.photos.append(pixmap)
-        if not self.photos:
-            self.photos = [QPixmap()]
 
     def animate(self):
         self.phase += 1
         self.update()
         for i, icon in enumerate(self.icons):
-            x = 35 + (i % 4) * 125 + int(12 * math.sin(self.phase / 7 + i))
-            y = 55 + (i // 4) * 105 + int(16 * math.sin(self.phase / 5 + i * 1.7))
+            x = 35 + (i % 4) * 125 + int(18 * math.sin(self.phase / 7 + i))
+            y = 55 + (i // 4) * 105 + int(20 * math.sin(self.phase / 5 + i * 1.7))
             icon.move(x, y)
+            hue = (self.phase * 3 + i * 35) % 360
             icon.setStyleSheet(
-                f"color:white;background:rgba(15,15,30,145);border:2px solid hsla({(self.phase*3+i*35)%360},100%,75%,0.95);"
+                f"color:white;background:rgba(15,15,30,145);border:2px solid hsla({hue},100%,75%,0.95);"
                 "border-radius:9px;padding:7px;font-size:13px;"
             )
-        if self.phase % 30 == 0:
+        if self.phase % 65 == 0:
             self.spawn_photo()
 
     def spawn_photo(self):
         if not self.photos:
             return
         card = PhotoCard(random.choice(self.photos), self)
-        card.move(random.randint(25, max(26, self.width()-225)), random.randint(80, max(81, self.height()-330)))
+        card.move(random.randint(25, max(26, self.width() - 225)), random.randint(80, max(81, self.height() - 260)))
         card.show()
         card.raise_()
         self.cards.append(card)
-        if len(self.cards) > 7:
+        if len(self.cards) > 6:
             self.cards.pop(0).deleteLater()
         self.skip.raise_()
-        self.caption.raise_()
+        for popup in self.caption_popups:
+            popup.raise_()
 
-    def update_caption(self):
-        if not self.captions:
-            return
+    def update_captions(self):
         position = self.player.position()
         for index, (start, end, text) in enumerate(self.captions):
-            if start <= position <= end:
-                if index != self.last_caption:
-                    self.caption.setText(text)
-                    self.caption.adjustSize()
-                    bubble_w, bubble_h = 390, 88
-                    self.caption.setGeometry(
-                        random.randint(25, max(26, self.width()-bubble_w-25)),
-                        random.randint(110, max(111, self.height()-bubble_h-110)),
-                        bubble_w, bubble_h
-                    )
-                    self.caption.raise_()
-                    self.last_caption = index
-                return
-        if self.caption.text():
-            self.caption.clear()
+            if start <= position <= end and index not in self.shown_captions:
+                self.shown_captions.add(index)
+                popup = CaptionPopup(text, self)
+                popup.move(
+                    random.randint(20, max(21, self.width() - popup.width() - 20)),
+                    random.randint(100, max(101, self.height() - popup.height() - 100)),
+                )
+                popup.show()
+                popup.raise_()
+                self.caption_popups.append(popup)
+                QTimer.singleShot(max(500, end - position), popup.deleteLater)
+                if len(self.caption_popups) > 8:
+                    old = self.caption_popups.pop(0)
+                    old.deleteLater()
+        self.caption_popups = [p for p in self.caption_popups if not p.isHidden()]
 
     def on_media_status(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.finish()
+
+    def on_media_error(self, error, message):
+        if error != QMediaPlayer.Error.NoError:
+            QMessageBox.warning(self, "PIROZKOV.exe", "Не удалось воспроизвести музыку. Проверь файл assets/samo_soboy.mp3.")
             self.finish()
 
     def paintEvent(self, event):
@@ -182,10 +228,18 @@ class Prank(QWidget):
         painter.fillRect(self.rect(), QColor.fromHsv((self.phase * 2) % 360, 220, 230))
         painter.fillRect(self.rect(), QColor(0, 0, 0, 55))
 
+    def resizeEvent(self, event):
+        if hasattr(self, "skip"):
+            self.skip.move(self.width() - self.skip.width() - 28, 24)
+        super().resizeEvent(event)
+
     def finish(self):
         self.timer.stop()
         self.caption_timer.stop()
         self.player.stop()
+        if self.photo_loader.isRunning():
+            self.photo_loader.quit()
+            self.photo_loader.wait(1200)
         self.close()
 
     def keyPressEvent(self, event):
@@ -194,9 +248,14 @@ class Prank(QWidget):
         else:
             super().keyPressEvent(event)
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    if not MUSIC.exists():
-        QMessageBox.information(None, "PIROZKOV.exe", "Положи свой аудиофайл «Само собой» в assets/samo_soboy.mp3. Затем запусти программу снова.")
+    if not MUSIC.is_file():
+        QMessageBox.information(
+            None, "PIROZKOV.exe",
+            "Положи аудиофайл «Само собой» в assets/samo_soboy.mp3, затем запусти программу снова."
+        )
+        sys.exit(0)
     window = Prank()
     sys.exit(app.exec())
