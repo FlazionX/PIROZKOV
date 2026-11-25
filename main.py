@@ -161,7 +161,12 @@ class Prank(QWidget):
                 if index != self.last_caption:
                     self.caption.setText(text)
                     self.caption.adjustSize()
-                    self.caption.setGeometry(80, self.height()-self.caption.height()-35, self.width()-160, self.caption.height())
+                    bubble_w, bubble_h = 390, 88
+                    self.caption.setGeometry(
+                        random.randint(25, max(26, self.width()-bubble_w-25)),
+                        random.randint(110, max(111, self.height()-bubble_h-110)),
+                        bubble_w, bubble_h
+                    )
                     self.caption.raise_()
                     self.last_caption = index
                 return
