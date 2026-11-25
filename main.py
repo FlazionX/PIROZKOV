@@ -209,6 +209,10 @@ class DesktopIconDance:
             kernel32.VirtualAllocEx.restype = ctypes.c_void_p
             kernel32.ReadProcessMemory.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
             kernel32.ReadProcessMemory.restype = ctypes.wintypes.BOOL
+            kernel32.VirtualFreeEx.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, ctypes.wintypes.DWORD]
+            kernel32.VirtualFreeEx.restype = ctypes.wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
+            kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
             user32.SendMessageW.argtypes = [ctypes.wintypes.HWND, ctypes.wintypes.UINT, ctypes.c_size_t, ctypes.c_ssize_t]
             user32.SendMessageW.restype = ctypes.c_ssize_t
             self.process = kernel32.OpenProcess(
@@ -407,7 +411,6 @@ class Prank(QWidget):
 
         self.show()
         self.apply_no_activate_style()
-        QTimer.singleShot(700, self.player.play)
 
     def apply_no_activate_style(self):
         if sys.platform != "win32":
@@ -435,9 +438,12 @@ class Prank(QWidget):
             if not image.isNull():
                 self.photos.append(image)
         if self.photos:
-            HeroSplash(random.choice(self.photos), self).show()
+            splash = HeroSplash(random.choice(self.photos), self)
+            splash.show()
+            QTimer.singleShot(4700, self.start_music)
         else:
             self.write_log("Фотографии не найдены. Положи JPG/PNG в assets/photos.")
+            QTimer.singleShot(500, self.start_music)
 
     def spawn_photo(self):
         if not self.photos or len(self.tiles) >= MAX_PHOTOS_ON_SCREEN:
@@ -470,7 +476,7 @@ class Prank(QWidget):
             y = tile.y() + tile.vy
             tile.wobble += 0.055
             tile.angle = math.sin(tile.wobble) * 11
-                if x < 0 and tile.vx < 0:
+            if x < 0 and tile.vx < 0:
                 tile.vx *= -1
             if x + tile.width() > self.width() and tile.vx > 0:
                 tile.vx *= -1
