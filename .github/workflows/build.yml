@@ -29,18 +29,21 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --collect-all PySide6 --name PIROZKOV main.py
+          pyinstaller --noconfirm --clean --onedir --windowed --hidden-import PySide6.QtMultimedia --collect-all PySide6.QtMultimedia --name PIROZKOV main.py
 
       - name: Prepare assets folder
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/assets/photos | Out-Null
-          Copy-Item assets/README.txt dist/assets/README.txt -ErrorAction SilentlyContinue
+          Copy-Item assets/README.txt dist/PIROZKOV/assets/README.txt -ErrorAction SilentlyContinue
+          if (Test-Path assets/samo_soboy.mp3) { Copy-Item assets/samo_soboy.mp3 dist/PIROZKOV/assets/ }
+          if (Test-Path assets/captions.srt) { Copy-Item assets/captions.srt dist/PIROZKOV/assets/ }
+          if (Test-Path assets/photos) { Copy-Item assets/photos/* dist/PIROZKOV/assets/photos/ -Recurse -Force }
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: PIROZKOV-Windows
-          path: dist/
+          path: dist/PIROZKOV/
           if-no-files-found: error
           retention-days: 14
