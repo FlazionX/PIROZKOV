@@ -544,6 +544,7 @@ class Prank(QWidget):
             return
         self.music_started = True
         self.player.play()
+        self.icon_dance.start()
         self.photo_timer.start(PHOTO_INTERVAL_MS)
 
     def set_photos(self, payload):
