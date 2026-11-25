@@ -165,6 +165,7 @@ class DesktopIconDance:
         self.remote_point = None
         self.original = []
         self.started = False
+        self.attempted = False
         self.tick = 0
 
     def _find_listview(self):
@@ -196,8 +197,9 @@ class DesktopIconDance:
         return found[0] if found else None
 
     def start(self):
-        if sys.platform != "win32":
+        if sys.platform != "win32" or self.attempted:
             return
+        self.attempted = True
         try:
             self.hwnd = self._find_listview()
             if not self.hwnd:
