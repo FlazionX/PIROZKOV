@@ -8,6 +8,7 @@ on:
       - "main.py"
       - "requirements.txt"
       - "build.bat"
+      - "desktop_icons.cpp"
       - ".github/workflows/build.yml"
 
 jobs:
@@ -27,9 +28,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build native desktop icon helper
+        shell: pwsh
+        run: |
+          cl /nologo /O2 /EHsc /LD desktop_icons.cpp /Fe:desktop_icons.dll /link ole32.lib oleaut32.lib shell32.lib
+          if ($LASTEXITCODE -ne 0) { throw "Native desktop icon helper build failed" }
+
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --clean --onedir --windowed --hidden-import PySide6.QtMultimedia --collect-all PySide6.QtMultimedia --name PIROZKOV main.py
+          pyinstaller --noconfirm --clean --onedir --windowed --hidden-import PySide6.QtMultimedia --collect-all PySide6.QtMultimedia --add-binary "desktop_icons.dll;." --name PIROZKOV main.py
 
       - name: Prepare assets folder
         shell: pwsh
