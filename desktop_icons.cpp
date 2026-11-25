@@ -175,11 +175,20 @@ extern "C" __declspec(dllexport) int __cdecl dance_icons_set_positions(
         points[static_cast<size_t>(i)].y = ys[i];
     }
 
+    // IFolderView expects an array of const child PIDLs. Build that
+    // exact pointer type instead of casting LPITEMIDLIST** and dropping
+    // const qualifiers.
+    std::vector<PCUITEMID_CHILD> childItems;
+    childItems.reserve(g_items.size());
+    for (auto* pidl : g_items) {
+        childItems.push_back(pidl);
+    }
+
     HRESULT hr = g_view->SelectAndPositionItems(
         static_cast<UINT>(count),
-        reinterpret_cast<PCUITEMID_CHILD_ARRAY>(g_items.data()),
+        childItems.data(),
         points.data(),
-        SVSI_POSITIONITEM
+        static_cast<DWORD>(SVSI_POSITIONITEM)
     );
     return SUCCEEDED(hr) ? 1 : 0;
 }
