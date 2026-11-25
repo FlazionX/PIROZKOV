@@ -387,6 +387,7 @@ class Prank(QWidget):
         self.setGeometry(QApplication.primaryScreen().geometry())
 
         self.phase = 0
+        self.music_started = False
         self.photos = []
         self.tiles = []
         self.caption_popups = []
@@ -410,7 +411,6 @@ class Prank(QWidget):
         self.caption_timer.start(80)
         self.photo_timer = QTimer(self)
         self.photo_timer.timeout.connect(self.spawn_photo)
-        self.photo_timer.start(PHOTO_INTERVAL_MS)
         self.icon_timer = QTimer(self)
         self.icon_timer.timeout.connect(self.icon_dance.animate)
         self.icon_timer.start(70)
@@ -442,8 +442,11 @@ class Prank(QWidget):
             pass
 
     def start_music(self):
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
-            self.player.play()
+        if self.music_started:
+            return
+        self.music_started = True
+        self.player.play()
+        self.photo_timer.start(PHOTO_INTERVAL_MS)
 
     def set_photos(self, paths):
         self.photos = []
