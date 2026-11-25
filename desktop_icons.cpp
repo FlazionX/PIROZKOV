@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <shlguid.h>
 #include <exdisp.h>
 #include <servprov.h>
 #include <oleauto.h>
@@ -21,7 +22,7 @@ static bool g_comInitialized = false;
 static void release_all()
 {
     for (auto* pidl : g_items) {
-        if (pidl) ILFree(pidl);
+        if (pidl) CoTaskMemFree(pidl);
     }
     g_items.clear();
 
@@ -130,7 +131,7 @@ extern "C" __declspec(dllexport) int __cdecl dance_icons_init()
     g_items.reserve(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
         LPITEMIDLIST pidl = nullptr;
-        hr = g_view->Item(i, IID_PPV_ARGS(&pidl));
+        hr = g_view->Item(i, &pidl);
         if (SUCCEEDED(hr) && pidl) {
             g_items.push_back(pidl);
         }
