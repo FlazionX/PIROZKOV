@@ -62,7 +62,7 @@ class PhotoLoader(QThread):
                 continue
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": "PIROZKOV-Prank/1.0"})
-                with urllib.request.urlopen(request, timeout=7) as response:
+                with urllib.request.urlopen(request, timeout=3) as response:
                     data = response.read(8 * 1024 * 1024 + 1)
                 if 0 < len(data) <= 8 * 1024 * 1024:
                     target.write_bytes(data)
@@ -239,7 +239,7 @@ class Prank(QWidget):
         self.player.stop()
         if self.photo_loader.isRunning():
             self.photo_loader.quit()
-            self.photo_loader.wait(1200)
+            self.photo_loader.wait(9500)
         self.close()
 
     def keyPressEvent(self, event):
