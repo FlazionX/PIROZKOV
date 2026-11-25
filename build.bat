@@ -5,7 +5,7 @@ py -m pip install -r requirements.txt pyinstaller
 
 REM Do not use --collect-all PySide6: it bundles every optional Qt module
 REM (including modules this app never imports) and makes the EXE much larger.
-py -m PyInstaller --noconfirm --clean --onefile --windowed --name PIROZKOV --hidden-import PySide6.QtMultimedia main.py
+py -m PyInstaller --noconfirm --clean --onefile --windowed --name PIROZKOV --hidden-import PySide6.QtMultimedia --collect-all PySide6.QtMultimedia main.py
 
 if not exist dist\assets\photos mkdir dist\assets\photos
 if exist assets\README.txt copy /Y assets\README.txt dist\assets\README.txt >nul
