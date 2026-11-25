@@ -10,7 +10,7 @@ from PySide6.QtGui import QPixmap, QPainter, QColor
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QFrame, QMessageBox
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
 PHOTO_DIR = ASSETS / "photos"
 MUSIC = ASSETS / "samo_soboy.mp3"
